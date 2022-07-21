@@ -15,7 +15,7 @@ class LabelProp(Arm):
     
     def train(self, trainloader, epochs, verbose=True, ignore_index_input = -1):
         """train arm"""
-        self.model.to(self.device)
+        self.model.to_device(self.device)
         for epoch in range(epochs):
             epoch_loss = 0
 
@@ -39,12 +39,12 @@ class LabelProp(Arm):
                 loss.backward()
                 self.opt.step()
             
-            if verbose:
+            if verbose and epoch % 10 == 0:
                 print("Loss in epoch %d = %f" % (epoch, epoch_loss))
 
     def predict(self, testloader):
         """predict with arm"""
-        self.model.to(self.device)
+        self.model.to_device(self.device)
         all_preds = []
 
         for local_batch, local_label in testloader:
@@ -70,14 +70,13 @@ class LabelProp(Arm):
             all_labels.append(labels)
         real_y = torch.cat(all_labels, dim=0)
         final_pred = preds.max(dim=1)[1]
-
-        equality = (real_y.clone().detach() == final_pred)
+        equality = (real_y.cpu() == final_pred.cpu())
         accuracy = equality.type(torch.FloatTensor).mean()
 
-        cm = confusion_matrix(real_y, final_pred)
+        cm = confusion_matrix(real_y.cpu(), final_pred.cpu())
         return float(accuracy), cm
 
     def construct_graph(self, X):
         """construct graph from data"""
         
-        return knn_graph(X, k=self.neighbors)
+        return knn_graph(X, k=self.neighbors, loop=True)

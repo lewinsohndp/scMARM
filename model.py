@@ -56,3 +56,8 @@ class Model(torch.nn.Module):
     def reset(self):
         """reset weights"""
         self.load(self.config_file)
+
+    def to_device(self, device):
+        """send layers to device"""
+        for layer in self.layers:
+            layer.to(device)
