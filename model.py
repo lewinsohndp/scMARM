@@ -40,7 +40,7 @@ class Model(torch.nn.Module):
         """saves model in *blank* format"""
         pass
 
-    def forward(self, X, arm):
+    def forward(self, X, arm, edge_index=None):
         """forward pass through model"""
 
         for layer in self.layers:
@@ -48,7 +48,8 @@ class Model(torch.nn.Module):
             if type(layer) == torch.nn.modules.linear.Linear:
                 X = layer(X)
             else:
-                edge_index = arm.construct_graph(X)
+                if edge_index==None:
+                    edge_index = arm.construct_graph(X)
                 X = layer(X, edge_index)
 
         return X

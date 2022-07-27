@@ -1,0 +1,119 @@
+---
+title: "Cell Type Annotation"
+author: "Daniel Lewinsohn"
+date: '2022-07-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load sc-type
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+
+#load sc sorter
+require(scSorter)
+require(SCINA)
+require(Seurat)
+require(dplyr)
+
+```
+
+```{r}
+# would like to take in counts and gene markers and return various cell type annotations
+counts <- read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/counts.csv", header=T, row.names = 1)
+markers_1 <- row.names(head(read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/group1_de.csv", header=T, row.names = 1), 8))
+markers_2 <- row.names(head(read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/group2_de.csv", header=T, row.names = 1), 8))
+markers_3 <- row.names(head(read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/group3_de.csv", header=T, row.names = 1), 8))
+markers_4 <- row.names(head(read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/group4_de.csv", header=T, row.names = 1), 8))
+metadata <- read.csv("~/desktop/conradLab/thesis/scMARM/simulations/splat_0.1_de/meta.csv", header=T, row.names=1)
+```
+
+Preprocess
+
+```{r}
+data <- CreateSeuratObject(t(counts), meta.data = metadata)
+data <- NormalizeData(data)
+data <- ScaleData(data)
+data <- FindVariableFeatures(data, selection.method = "vst", nfeatures = 2000)
+data <- RunPCA(data)
+  
+data <- FindNeighbors(data)
+data <- FindClusters(data)
+  
+data <- RunUMAP(data, dims = 1:50, mid.dist=.1)
+  
+DimPlot(data, reduction="umap", label =T)
+DimPlot(data, reduction="umap", group.by = "Group", label=T)
+```
+
+Run ScType
+
+```{r}
+markers = list(Group1 = markers_1, Group2 = markers_2, Group3 = markers_3, Group4 = markers_4)
+es.max = sctype_score(scRNAseqData = as.matrix(data@assays$RNA@data), scaled = F, 
+                      gs = markers, gs2 = NULL, gene_names_to_uppercase = F) 
+cL_resutls = do.call("rbind", lapply(unique(data@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(data@meta.data[data@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(data@meta.data$seurat_clusters==cl)), 10)
+}))
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+```
+
+```{r}
+data@meta.data$customclassif = ""
+for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  data@meta.data$customclassif[data@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+}
+
+DimPlot(data, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'customclassif')    
+```
+```{r}
+table(data$Group, data$customclassif)
+```
+
+
+
+Run ScSorter
+
+```{r}
+anno <- data.frame(Type=c(rep("Group1",8), rep("Group2",8), rep("Group3", 8), rep("Group4",8)), Marker=c(markers_1, markers_2, markers_3, markers_4))
+topgenes <- head(VariableFeatures(data), 2000)
+picked_genes <- unique(c(topgenes, anno$Marker))
+expr <- as.matrix(data@assays$RNA@data)
+expr <- expr[rownames(expr) %in% picked_genes,]
+```
+
+```{r}
+rts <- scSorter(expr, anno)
+```
+
+```{r}
+table(data$Group, rts$Pred_Type)
+```
+
+Run SCINA
+
+```{r}
+# markers same as SCTYPE
+expr = as.matrix(data@assays$RNA@data)
+results <- SCINA(expr, markers)
+```
+
+```{r}
+table(data$Group, results$cell_labels)
+```
+
+```{r}
+mean(data$Group == results$cell_labels)
+```
+
+```{r}
+head(data$Group)
+```
+
